@@ -51,10 +51,14 @@ def generate_launch_description() -> LaunchDescription:
         additional_env={
             'LIBGL_ALWAYS_SOFTWARE': '1',
             'MESA_GL_VERSION_OVERRIDE': '3.3',
-            # Colon-separated list: Gazebo searches each dir for model:// URIs
-            # worlds_dir  → world-relative resource lookups (textures, etc.)
-            # models_dir  → resolves model://quadrotor, model://hatchback_red,
-            #               model://person_standing  (our flat model dirs)
+            # EGL_PLATFORM=x11 forces Mesa's EGL to use the X11 display path
+            # instead of EGL_PLATFORM_DEVICE_EXT (explicit GPU device).
+            # On the X11 EGL path, LIBGL_ALWAYS_SOFTWARE=1 IS respected, so
+            # llvmpipe handles sensor (EGL) rendering the same way it handles
+            # the GUI (GLX) — fixing the all-black camera image on VirtualBox.
+            'EGL_PLATFORM': 'x11',
+            # Colon-separated: Gazebo searches each dir for model:// URIs and
+            # resource files (textures, etc.)
             'GZ_SIM_RESOURCE_PATH': f'{worlds_dir}:{models_dir}',
         },
         output='screen',
