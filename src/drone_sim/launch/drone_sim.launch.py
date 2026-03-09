@@ -25,21 +25,31 @@ def generate_launch_description() -> LaunchDescription:
     pkg = get_package_share_directory('drone_sim')
     world_file = os.path.join(pkg, 'worlds', 'rescue_world.sdf')
     model_file = os.path.join(pkg, 'models', 'drone.sdf')
+    worlds_dir = os.path.join(pkg, 'worlds')   # for GZ_SIM_RESOURCE_PATH
 
     # ── 1. Gazebo ─────────────────────────────────────────────────────────────
     # -r = run immediately (no pause at startup)
     #
-    # LIBGL_ALWAYS_SOFTWARE=1 forces Mesa LLVMpipe (CPU software renderer).
-    # VirtualBox's VMSVGA3D driver advertises OpenGL 4.1 but its GLSL
-    # implementation is incomplete and crashes Ogre2's shader pipeline,
-    # causing a completely black render window.  LLVMpipe is fully conformant
-    # and slower, but correct.
-    # MESA_GL_VERSION_OVERRIDE ensures Mesa reports >= 3.3 to Ogre2.
+    # VirtualBox VMSVGA3D driver breaks Ogre2 GLSL shaders causing black
+    # screens in both the Gazebo GUI (GLX) and camera sensors (EGL).
+    #
+    # LIBGL_ALWAYS_SOFTWARE=1         fixes GLX (the Gazebo GUI window)
+    # MESA_LOADER_DRIVER_OVERRIDE=llvmpipe  fixes EGL (camera sensor rendering)
+    #   — overrides at DRI-loader level before EGL device selection, bypassing
+    #     the "Not allowed to force software rendering" EGL warning.
+    # GALLIUM_DRIVER=llvmpipe         ensures the Gallium llvmpipe path is used
+    # MESA_GL_VERSION_OVERRIDE=3.3    advertises OpenGL 3.3 (Ogre2 minimum)
+    # MESA_GLSL_VERSION_OVERRIDE=330  matches GLSL version to GL version
+    # GZ_SIM_RESOURCE_PATH            lets Gazebo/Ogre2 find our texture files
     gazebo = ExecuteProcess(
         cmd=['gz', 'sim', '-r', world_file],
         additional_env={
             'LIBGL_ALWAYS_SOFTWARE': '1',
+            'MESA_LOADER_DRIVER_OVERRIDE': 'llvmpipe',
+            'GALLIUM_DRIVER': 'llvmpipe',
             'MESA_GL_VERSION_OVERRIDE': '3.3',
+            'MESA_GLSL_VERSION_OVERRIDE': '330',
+            'GZ_SIM_RESOURCE_PATH': worlds_dir,
         },
         output='screen',
     )

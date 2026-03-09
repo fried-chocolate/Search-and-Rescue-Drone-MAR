@@ -99,15 +99,16 @@ def generate_lawnmower(x_min: float, x_max: float,
 
 CRUISE_ALT     = 8.0    # metres — target cruising altitude
 TAKEOFF_TOL    = 0.5    # metres — altitude tolerance to leave takeoff phase
-WP_RADIUS      = 1.5    # metres — "waypoint reached" acceptance radius
-MAX_XY_SPEED   = 3.0    # m/s    — horizontal speed cap
+WP_RADIUS      = 1.2    # metres — "waypoint reached" acceptance radius
+MAX_XY_SPEED   = 2.5    # m/s    — horizontal speed cap
 MAX_YAW_RATE   = 1.2    # rad/s  — yaw rate cap
 CTRL_HZ        = 10.0   # Hz     — control-loop frequency
 
 # Lawnmower search grid (metres, world frame)
-GRID_X_MIN,  GRID_X_MAX  = -20.0, 20.0
-GRID_Y_MIN,  GRID_Y_MAX  = -20.0, 20.0
-GRID_LANE_STEP            =   5.0
+# Kept to ±13 m to match the obstacle/victim placement area.
+GRID_X_MIN,  GRID_X_MAX  = -13.0, 13.0
+GRID_Y_MIN,  GRID_Y_MAX  = -13.0, 13.0
+GRID_LANE_STEP            =   3.5
 
 
 # ── Main Control Node ─────────────────────────────────────────────────────────
@@ -144,6 +145,9 @@ class DroneControl(Node):
         self._alt_pid = PID(kp=1.5, ki=0.05, kd=0.8,
                             output_min=-3.0, output_max=3.0)
 
+        # Loop counter for periodic position logging (every 2 s at 10 Hz)
+        self._log_counter = 0
+
         # ── Timer ────────────────────────────────────────────────────────────
         self.create_timer(1.0 / CTRL_HZ, self._control_loop)
 
@@ -176,6 +180,20 @@ class DroneControl(Node):
         y   = self._pose.position.y
         z   = self._pose.position.z
         yaw = quaternion_to_yaw(self._pose.orientation)
+
+        # Periodic position log (every 20 loops = 2 s)
+        self._log_counter += 1
+        if self._log_counter % 20 == 0:
+            wp_str = '—'
+            if self._phase == 'search' and self._wp_index < len(self._waypoints):
+                wx, wy, _ = self._waypoints[self._wp_index]
+                dist_to_wp = math.hypot(wx - x, wy - y)
+                wp_str = (f'wp {self._wp_index+1}/{len(self._waypoints)} '
+                          f'→ ({wx:.0f},{wy:.0f}) dist={dist_to_wp:.1f}m')
+            self.get_logger().info(
+                f'[NAV] x={x:+.1f}m y={y:+.1f}m z={z:.1f}m '
+                f'yaw={math.degrees(yaw):+.0f}° | {self._phase} | {wp_str}'
+            )
 
         # Phase 3: altitude PID is active during every flying phase
         cmd.linear.z = self._alt_pid.compute(CRUISE_ALT, z)
@@ -224,9 +242,10 @@ class DroneControl(Node):
             cmd.angular.z = max(-MAX_YAW_RATE,
                                 min(MAX_YAW_RATE, 1.5 * yaw_err))
 
-            # Forward speed — scale down when misaligned to avoid overshoot
-            alignment = math.cos(yaw_err)           # 1 = perfect, -1 = opposite
-            forward   = max(0.0, alignment) * min(MAX_XY_SPEED, dist_xy)
+            # Forward speed — scale down when misaligned OR when close to wp
+            alignment  = math.cos(yaw_err)           # 1 = perfect, -1 = opposite
+            ramp       = min(1.0, dist_xy / 4.0)     # slow down in last 4 m
+            forward    = max(0.0, alignment) * MAX_XY_SPEED * ramp
             cmd.linear.x = forward
 
             # Small lateral correction to cancel crosswind / drift

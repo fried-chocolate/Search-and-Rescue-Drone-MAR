@@ -16,6 +16,8 @@ setup(
             glob('launch/*.py')),
         (os.path.join('share', package_name, 'worlds'),
             glob('worlds/*.sdf')),
+        (os.path.join('share', package_name, 'worlds', 'textures'),
+            glob('worlds/textures/*')),
         (os.path.join('share', package_name, 'models'),
             glob('models/*.sdf')),
     ],
