@@ -1,11 +1,145 @@
 # Search-and-Rescue Drone Simulation — Progress Track
 
-> Last updated: **2026-03-09** (bugfix run)
+> Last updated: **2026-03-10** (model aesthetics upgrade)
 > Stack: ROS2 Jazzy · Gazebo Harmonic · Python · SDF
 
 ---
 
-## Bugfix Session 2 — Camera EGL, Textures, Navigation Clarity ✅ FIXED
+## Model Aesthetics Upgrade ✅ COMPLETE
+
+### Problem
+All scene objects rendered as plain coloured boxes: the drone looked like a floating
+blue rectangle; the car wreck was a dark-red slab; the victims were featureless
+spheres. This is unrealistic for a rescue simulation.
+
+### Solution — Real 3D mesh assets
+
+**Drone (quadrotor mesh)**
+- Source: [`osrf/gazebo_models`](https://github.com/osrf/gazebo_models/tree/master/quadrotor)
+  — `quadrotor_base.dae` (Stefan Kohlbrecher, COLLADA format)
+- Placed in `models/quadrotor/meshes/quadrotor_base.dae`
+- `drone.sdf` visual replaced: `<uri>model://quadrotor/meshes/quadrotor_base.dae</uri>`
+- Inertia updated to osrf values: mass=1.316 kg, ixx=iyy=0.0128, izz=0.0218
+- Box collision **kept** (mesh collision is expensive; physics is identical)
+
+**Car wreck (Hatchback Red)**
+- Source: Gazebo Fuel — `OpenRobotics/Hatchback Red` (OBJ + MTL + PNG texture)
+- Scale: 0.0254 (inches → metres), 90° yaw rotation applied in model.sdf
+- `rescue_world.sdf` car_wreck replaced with:
+  `<include><uri>model://hatchback_red</uri><pose>-15 8 0.0 0 0 0.8</pose></include>`
+
+**Victims (Standing person)**
+- Source: Gazebo Fuel — `OpenRobotics/Standing person` (DAE + 11 skin/clothing PNGs)
+- Fixed model.sdf to use local `model://` URI instead of Fuel HTTPS download URL
+- `rescue_world.sdf` victim_1/2 red spheres replaced with `<include>` tags, each
+  given a different yaw angle so they appear to face different directions
+
+### New model directory structure
+```
+src/drone_sim/models/
+  quadrotor/
+    model.config
+    meshes/quadrotor_base.dae
+  hatchback_red/
+    model.config  model.sdf
+    meshes/hatchback.obj  hatchback.mtl
+    materials/textures/hatchback.png
+  person_standing/
+    model.config  model.sdf
+    meshes/standing.dae
+    materials/textures/*.png  (11 files: skin, jeans, shirt, eyes, teeth, …)
+```
+
+### GZ_SIM_RESOURCE_PATH updated
+Previously only pointed to `worlds/`. Now set to `worlds_dir:models_dir` so Gazebo
+can resolve all `model://` URIs at runtime:
+- `model://quadrotor` → drone COLLADA mesh
+- `model://hatchback_red` → car OBJ
+- `model://person_standing` → victim DAE
+
+### setup.py
+Added explicit `data_files` entries for every mesh and texture subfolder so
+`colcon build` installs everything into `share/drone_sim/models/`.
+
+**Files changed**
+- `models/drone.sdf` — mesh visual, updated inertia
+- `worlds/rescue_world.sdf` — 3× `<include>` tags replace box models
+- `launch/drone_sim.launch.py` — `GZ_SIM_RESOURCE_PATH` extended
+- `setup.py` — 6 new `data_files` entries for mesh model dirs
+- **New directories**: `models/quadrotor/`, `models/hatchback_red/`, `models/person_standing/`
+
+**Git commit**: `feat: replace box geometry with real 3D meshes (quadrotor DAE, hatchback OBJ, standing person DAE)`
+
+---
+
+## Bugfix Session 4 — gzserver SIGKILL / "taking too long to respond" ✅ FIXED
+
+### Problem
+After Bugfix Session 2, Gazebo was being killed by the OS with SIGKILL approximately
+8 seconds after launch: `gzserver: taking too long to respond`. This made the world
+impossible to load.
+
+### Root cause
+Two features added in Session 2 triggered **Ogre2 compute-shader compilation** at
+startup, which hangs indefinitely on software GL (LLVMpipe has no GPU compute):
+1. `<sky><clouds>` SDF tag — uses an Ogre2 procedural cloud compute shader
+2. PBR `<albedo_map>` texture on the ground plane — triggers the PBR shader pipeline
+
+The kernel-level OOM killer / Gazebo's own watchdog sent SIGKILL after the 5-second
+(later 8-second) startup timeout.
+
+### Fix applied
+
+| File | Change |
+|---|---|
+| `worlds/rescue_world.sdf` | Removed `<sky><clouds>` block entirely |
+| `worlds/rescue_world.sdf` | Removed `<pbr><metal><albedo_map>` from ground plane; reverted to flat RGBA `<material>` |
+| `launch/drone_sim.launch.py` | Increased spawn delay 5s→8s, Gazebo timeout 5000ms→8000ms |
+
+Flat `<ambient>/<diffuse>` colours use the **Legacy (Phong)** shader path — no
+compute-shader compilation, safe on software GL.
+
+**Files changed**
+- `worlds/rescue_world.sdf` — removed sky/clouds, reverted to flat material
+- `launch/drone_sim.launch.py` — longer timeouts
+
+---
+
+## Bugfix Session 3 — Segfault in driCreateNewScreen3 ✅ FIXED
+
+### Problem
+After Bugfix Session 2 added `MESA_LOADER_DRIVER_OVERRIDE=llvmpipe` and
+`GALLIUM_DRIVER=llvmpipe`, Gazebo crashed immediately on startup with a segfault
+inside `driCreateNewScreen3` in the Mesa EGL stack.
+
+### Root cause
+Ogre2-Next (Gazebo Harmonic's renderer) uses **EGL_PLATFORM_DEVICE_EXT** to
+explicitly enumerate and select the EGL device. This device-selection path
+**bypasses** the DRI loader-level override (`MESA_LOADER_DRIVER_OVERRIDE`).
+When the loader-level override is applied after EGL has already locked onto a
+hardware device, the two driver paths conflict and segfault.
+
+### Fix applied
+Reverted to the Session-1 env var set — only two variables:
+
+```python
+'LIBGL_ALWAYS_SOFTWARE': '1',       # forces llvmpipe for GLX (GUI window)
+'MESA_GL_VERSION_OVERRIDE': '3.3',  # tells Ogre2 that OpenGL 3.3 is available
+```
+
+`MESA_LOADER_DRIVER_OVERRIDE`, `GALLIUM_DRIVER`, and `MESA_GLSL_VERSION_OVERRIDE`
+**removed** — they cause the crash.
+
+**Status after fix**: Gazebo GUI renders correctly via LLVMpipe. Camera EGL path
+still uses hardware (VirtualBox VMSVGA3D) and produces black frames — unavoidable
+without a real GPU.
+
+**Files changed**
+- `launch/drone_sim.launch.py` — removed 3 broken env vars, kept 2 stable ones
+
+---
+
+
 
 ### Camera still black after session 1
 The first fix (`LIBGL_ALWAYS_SOFTWARE=1`) only affects **GLX** (Gazebo GUI window).
@@ -247,13 +381,11 @@ ros2 run drone_sim camera_viewer
 
 ## Known Issues / TODOs
 
-- [ ] **VirtualBox camera**: ogre2 renderer requires 3D acceleration.
-  Enable in VM Settings → Display → Enable 3D Acceleration.
-  Without it, camera sensor will silently produce no frames.
+- [ ] **VirtualBox camera**: ogre2 renderer requires 3D acceleration for the EGL
+  (sensor) path. Camera window is always black on VirtualBox + VMSVGA3D without a
+  real GPU. GLX (Gazebo GUI) works correctly via LLVMpipe software rendering.
 - [ ] **PID tuning**: Gains (Kp/Ki/Kd) may need adjustment after real
   simulation testing — depends on physics step size and model mass.
-- [ ] **Drone model**: Still a simple box. Realistic quadrotor mesh and
-  4-rotor physics are deferred to a future phase.
 - [ ] **Body-frame vs world-frame velocities**: VelocityControl applies
   velocities in the body frame. If the drone tilts significantly, the
   altitude PID output (`linear.z`) will not be purely vertical.
