@@ -116,9 +116,9 @@ def generate_launch_description() -> LaunchDescription:
         output='screen',
     )
 
-    # ── 3. Spawn drone (delayed 5 s) ──────────────────────────────────────────
+    # ── 3. Spawn drone (delayed 8 s) ──────────────────────────────────────────
     spawn_drone = TimerAction(
-        period=5.0,
+        period=8.0,
         actions=[
             ExecuteProcess(
                 cmd=[
@@ -126,7 +126,7 @@ def generate_launch_description() -> LaunchDescription:
                     '-s', '/world/rescue_world/create',
                     '--reqtype', 'gz.msgs.EntityFactory',
                     '--reptype', 'gz.msgs.Boolean',
-                    '--timeout', '5000',
+                    '--timeout', '8000',
                     '--req',
                     f'sdf_filename: "{model_file}", name: "quadrotor"',
                 ],
@@ -135,9 +135,9 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
-    # ── 4. Drone controller (delayed 9 s) ─────────────────────────────────────
+    # ── 4. Drone controller (delayed 13 s) ────────────────────────────────────
     drone_controller = TimerAction(
-        period=9.0,
+        period=13.0,
         actions=[
             Node(
                 package='drone_sim',
@@ -148,9 +148,9 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
-    # ── 5. Camera viewer (delayed 12 s) ──────────────────────────────────────
+    # ── 5. Camera viewer (delayed 16 s) ──────────────────────────────────────
     camera_viewer = TimerAction(
-        period=12.0,
+        period=16.0,
         actions=[
             Node(
                 package='drone_sim',
