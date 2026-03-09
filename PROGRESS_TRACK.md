@@ -1,7 +1,31 @@
 # Search-and-Rescue Drone Simulation — Progress Track
 
-> Last updated: **2026-03-09**
+> Last updated: **2026-03-09** (bugfix run)
 > Stack: ROS2 Jazzy · Gazebo Harmonic · Python · SDF
+
+---
+
+## Bugfix Session — Rendering & Shutdown Issues ✅ FIXED
+
+### Root cause diagnosis
+`glxinfo -B` showed the VirtualBox SVGA3D driver (Mesa 25.2.8) advertises
+OpenGL 4.1 but its **GLSL shader pipeline is incomplete** — Ogre2 (Gazebo
+Harmonic's default renderer) fails silently and produces a fully black
+render window. This affected both the Gazebo GUI and the camera sensor (which
+renders the scene with the same Ogre2 backend).
+
+### Fixes applied
+
+| File | Fix |
+|---|---|
+| `launch/drone_sim.launch.py` | Added `LIBGL_ALWAYS_SOFTWARE=1` + `MESA_GL_VERSION_OVERRIDE=3.3` to Gazebo `ExecuteProcess`. Forces Mesa **LLVMpipe** (CPU software renderer), which is fully conformant and correctly runs Ogre2 GLSL shaders. |
+| `worlds/rescue_world.sdf` | Added `<scene>` block with ambient light, sky-blue background, and clouds so Ogre2 always has a valid scene to initialize against. |
+| `drone_sim/takeoff.py` | Wrapped `rclpy.shutdown()` in `try/except` — SIGINT already calls shutdown; the `finally` block was raising `RCLError` (harmless but noisy). |
+| `drone_sim/camera_viewer.py` | Same SIGINT double-shutdown fix as `takeoff.py`. |
+
+### Performance note
+LLVMpipe is CPU-rendered — expect ~5–15 fps in the Gazebo GUI on a 4-core VM.
+Simulation physics and sensor data are unaffected by rendering frame rate.
 
 ---
 
