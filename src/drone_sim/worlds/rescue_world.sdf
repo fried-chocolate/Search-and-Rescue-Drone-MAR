@@ -142,62 +142,30 @@
       </link>
     </model>
 
-    <!-- ── Car wreck ──────────────────────────────────────────────────────── -->
-    <model name="car_wreck">
-      <static>true</static>
-      <pose>-15 8 0.4 0 0 0.8</pose>
-      <link name="link">
-        <collision name="collision">
-          <geometry><box><size>4.0 1.8 0.8</size></box></geometry>
-        </collision>
-        <visual name="visual">
-          <geometry><box><size>4.0 1.8 0.8</size></box></geometry>
-          <material>
-            <ambient>0.25 0.10 0.10 1</ambient>
-            <diffuse>0.25 0.10 0.10 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
+    <!-- ── Car wreck — real Hatchback Red mesh (OBJ + PNG texture) ──────── -->
+    <!-- model://hatchback_red resolved via GZ_SIM_RESOURCE_PATH=models_dir  -->
+    <include>
+      <uri>model://hatchback_red</uri>
+      <name>car_wreck</name>
+      <!-- z=0: wheels rest on ground; yaw=0.8 rad tilts it for realism      -->
+      <pose>-15 8 0.0 0 0 0.8</pose>
+    </include>
 
-    <!-- ── Victim 1 — bright red sphere near building 1 ──────────────────── -->
-    <!-- Used in Phase 6 victim detection: target for colour-blob detection  -->
-    <model name="victim_1">
-      <static>true</static>
-      <pose>12 3 0.3 0 0 0</pose>
-      <link name="link">
-        <collision name="collision">
-          <geometry><sphere><radius>0.3</radius></sphere></geometry>
-        </collision>
-        <visual name="visual">
-          <geometry><sphere><radius>0.3</radius></sphere></geometry>
-          <material>
-            <ambient>1.0 0.0 0.0 1</ambient>
-            <diffuse>1.0 0.0 0.0 1</diffuse>
-            <emissive>0.4 0.0 0.0 1</emissive>
-          </material>
-        </visual>
-      </link>
-    </model>
+    <!-- ── Victim 1 — standing person near building 1 ────────────────────── -->
+    <!-- Uses COLLADA mesh with skin+clothing textures (person_standing model) -->
+    <include>
+      <uri>model://person_standing</uri>
+      <name>victim_1</name>
+      <pose>12 3 0.0 0 0 0</pose>
+    </include>
 
-    <!-- ── Victim 2 — bright red sphere near building 2 ──────────────────── -->
-    <model name="victim_2">
-      <static>true</static>
-      <pose>-6 14 0.3 0 0 0</pose>
-      <link name="link">
-        <collision name="collision">
-          <geometry><sphere><radius>0.3</radius></sphere></geometry>
-        </collision>
-        <visual name="visual">
-          <geometry><sphere><radius>0.3</radius></sphere></geometry>
-          <material>
-            <ambient>1.0 0.0 0.0 1</ambient>
-            <diffuse>1.0 0.0 0.0 1</diffuse>
-            <emissive>0.4 0.0 0.0 1</emissive>
-          </material>
-        </visual>
-      </link>
-    </model>
+    <!-- ── Victim 2 — standing person near building 2 ────────────────────── -->
+    <include>
+      <uri>model://person_standing</uri>
+      <name>victim_2</name>
+      <!-- Face a different direction so they look distinct                  -->
+      <pose>-6 14 0.0 0 0 2.3</pose>
+    </include>
 
   </world>
 </sdf>

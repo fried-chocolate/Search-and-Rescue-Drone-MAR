@@ -25,7 +25,10 @@ def generate_launch_description() -> LaunchDescription:
     pkg = get_package_share_directory('drone_sim')
     world_file = os.path.join(pkg, 'worlds', 'rescue_world.sdf')
     model_file = os.path.join(pkg, 'models', 'drone.sdf')
-    worlds_dir = os.path.join(pkg, 'worlds')   # for GZ_SIM_RESOURCE_PATH
+    worlds_dir = os.path.join(pkg, 'worlds')
+    # models_dir is where quadrotor/, hatchback_red/, person_standing/ live
+    # Gazebo resolves model:// URIs by searching each dir in GZ_SIM_RESOURCE_PATH
+    models_dir = os.path.join(pkg, 'models')
 
     # ── 1. Gazebo ─────────────────────────────────────────────────────────────
     # -r = run immediately (no pause at startup)
@@ -48,7 +51,11 @@ def generate_launch_description() -> LaunchDescription:
         additional_env={
             'LIBGL_ALWAYS_SOFTWARE': '1',
             'MESA_GL_VERSION_OVERRIDE': '3.3',
-            'GZ_SIM_RESOURCE_PATH': worlds_dir,
+            # Colon-separated list: Gazebo searches each dir for model:// URIs
+            # worlds_dir  → world-relative resource lookups (textures, etc.)
+            # models_dir  → resolves model://quadrotor, model://hatchback_red,
+            #               model://person_standing  (our flat model dirs)
+            'GZ_SIM_RESOURCE_PATH': f'{worlds_dir}:{models_dir}',
         },
         output='screen',
     )
