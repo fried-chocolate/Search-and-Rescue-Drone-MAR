@@ -30,25 +30,24 @@ def generate_launch_description() -> LaunchDescription:
     # ── 1. Gazebo ─────────────────────────────────────────────────────────────
     # -r = run immediately (no pause at startup)
     #
-    # VirtualBox VMSVGA3D driver breaks Ogre2 GLSL shaders causing black
-    # screens in both the Gazebo GUI (GLX) and camera sensors (EGL).
+    # VirtualBox's VMSVGA3D driver exposes OpenGL 4.1 via Mesa but its GLSL
+    # implementation is incomplete, causing Ogre2 to render a black window.
     #
-    # LIBGL_ALWAYS_SOFTWARE=1         fixes GLX (the Gazebo GUI window)
-    # MESA_LOADER_DRIVER_OVERRIDE=llvmpipe  fixes EGL (camera sensor rendering)
-    #   — overrides at DRI-loader level before EGL device selection, bypassing
-    #     the "Not allowed to force software rendering" EGL warning.
-    # GALLIUM_DRIVER=llvmpipe         ensures the Gallium llvmpipe path is used
-    # MESA_GL_VERSION_OVERRIDE=3.3    advertises OpenGL 3.3 (Ogre2 minimum)
-    # MESA_GLSL_VERSION_OVERRIDE=330  matches GLSL version to GL version
-    # GZ_SIM_RESOURCE_PATH            lets Gazebo/Ogre2 find our texture files
+    # LIBGL_ALWAYS_SOFTWARE=1      → Mesa uses llvmpipe for GLX (GUI window)
+    # MESA_GL_VERSION_OVERRIDE=3.3 → tells Ogre2 OpenGL 3.3 is available
+    #
+    # NOTE: MESA_LOADER_DRIVER_OVERRIDE=llvmpipe and GALLIUM_DRIVER=llvmpipe
+    # were tried but cause a segfault in driCreateNewScreen3 when Ogre2-Next
+    # uses EGL_PLATFORM_DEVICE_EXT (explicit EGL device selection bypasses
+    # the loader-level override).  The session-1 pair below is the only
+    # combination that doesn't crash on this VirtualBox + Mesa 25.2.8 setup.
+    #
+    # GZ_SIM_RESOURCE_PATH lets Ogre2 find our procedural texture PNGs.
     gazebo = ExecuteProcess(
         cmd=['gz', 'sim', '-r', world_file],
         additional_env={
             'LIBGL_ALWAYS_SOFTWARE': '1',
-            'MESA_LOADER_DRIVER_OVERRIDE': 'llvmpipe',
-            'GALLIUM_DRIVER': 'llvmpipe',
             'MESA_GL_VERSION_OVERRIDE': '3.3',
-            'MESA_GLSL_VERSION_OVERRIDE': '330',
             'GZ_SIM_RESOURCE_PATH': worlds_dir,
         },
         output='screen',
