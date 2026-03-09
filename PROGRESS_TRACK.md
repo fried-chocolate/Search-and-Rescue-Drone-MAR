@@ -5,7 +5,44 @@
 
 ---
 
-## Bugfix Session — Rendering & Shutdown Issues ✅ FIXED
+## Bugfix Session 2 — Camera EGL, Textures, Navigation Clarity ✅ FIXED
+
+### Camera still black after session 1
+The first fix (`LIBGL_ALWAYS_SOFTWARE=1`) only affects **GLX** (Gazebo GUI window).
+The camera sensor renders **server-side via EGL**, which ignores that env var.
+Proof: `libEGL warning: Not allowed to force software rendering when API explicitly selects a hardware device`.
+
+**Root cause**: Gazebo Harmonic's Ogre2 uses `EGLDevice` enumeration to pick the display.
+Once an explicit hardware device is selected, `LIBGL_ALWAYS_SOFTWARE` is ignored.
+
+**Fix**: `MESA_LOADER_DRIVER_OVERRIDE=llvmpipe` — overrides at the DRI-loader level
+**before** EGL device selection occurs. Combined with `GALLIUM_DRIVER=llvmpipe` and
+`MESA_GLSL_VERSION_OVERRIDE=330`.
+
+### Textures
+No textures ship with Gazebo Harmonic. Generated procedurally with **Python PIL**:
+- `worlds/textures/ground.png` (1024×1024) — sandy disaster-zone terrain with
+  dark ash patches and crack lines. Used as PBR `albedo_map` on the ground plane.
+  **This is also what the drone camera sees when looking straight down.**
+- `worlds/textures/concrete.png` (512×512) — gray concrete tiles for buildings.
+- `GZ_SIM_RESOURCE_PATH` set to the installed `worlds/` directory in the launch file
+  so Ogre2 can find the textures.
+
+### Navigation clarity
+| Parameter | Before | After |
+|---|---|---|
+| Grid size | ±20 m | ±13 m (matches obstacle area) |
+| Lane step | 5 m | 3.5 m (denser coverage) |
+| Max speed | 3.0 m/s | 2.5 m/s |
+| WP radius | 1.5 m | 1.2 m |
+| Speed near WP | constant | ramps down linearly in final 4 m |
+| Position log | none | every 2 s: x/y/z/yaw/phase/wp/dist |
+
+The `[NAV]` log line now printed every 2 seconds shows exactly where the drone is,
+which direction it's heading, and how far it is from the next waypoint.
+
+---
+
 
 ### Root cause diagnosis
 `glxinfo -B` showed the VirtualBox SVGA3D driver (Mesa 25.2.8) advertises
