@@ -26,29 +26,82 @@
         </geometry>
       </collision>
 
-     <visual name="visual">
-	<geometry>
-	    <box>
-		<size>0.4 0.4 0.1</size>
-	    </box>
-  	</geometry>
+      <visual name="visual">
+        <geometry>
+          <box>
+            <size>0.4 0.4 0.1</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.3 0.7 1.0 1</ambient>
+          <diffuse>0.3 0.7 1.0 1</diffuse>
+          <specular>0.5 0.5 0.5 1</specular>
+        </material>
+      </visual>
 
-  	<material>
-            <ambient>0.3 0.7 1.0 1</ambient>
-	    <diffuse>0.3 0.7 1.0 1</diffuse>
-	    <specular>0.5 0.5 0.5 1</specular>
-	</material>
+      <!-- ── Downward-facing camera (Phase 5) ─────────────────────────── -->
+      <!-- Pose: mounted on bottom, pitched -90° so it looks straight down  -->
+      <sensor name="camera" type="camera">
+        <pose>0 0 -0.06 0 1.5708 0</pose>
+        <always_on>true</always_on>
+        <update_rate>30</update_rate>
+        <visualize>true</visualize>
+        <topic>/drone/camera</topic>
+        <camera name="drone_cam">
+          <horizontal_fov>1.047</horizontal_fov>
+          <image>
+            <width>640</width>
+            <height>480</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip>
+            <near>0.1</near>
+            <far>100</far>
+          </clip>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.007</stddev>
+          </noise>
+        </camera>
+      </sensor>
 
-    </visual>
+      <!-- ── IMU sensor (Phase 5) ────────────────────────────────────── -->
+      <sensor name="imu_sensor" type="imu">
+        <always_on>true</always_on>
+        <update_rate>100</update_rate>
+        <topic>/drone/imu</topic>
+        <imu>
+          <angular_velocity>
+            <x><noise type="gaussian"><mean>0.0</mean><stddev>2e-4</stddev></noise></x>
+            <y><noise type="gaussian"><mean>0.0</mean><stddev>2e-4</stddev></noise></y>
+            <z><noise type="gaussian"><mean>0.0</mean><stddev>2e-4</stddev></noise></z>
+          </angular_velocity>
+          <linear_acceleration>
+            <x><noise type="gaussian"><mean>0.0</mean><stddev>1.7e-2</stddev></noise></x>
+            <y><noise type="gaussian"><mean>0.0</mean><stddev>1.7e-2</stddev></noise></y>
+            <z><noise type="gaussian"><mean>0.0</mean><stddev>1.7e-2</stddev></noise></z>
+          </linear_acceleration>
+        </imu>
+      </sensor>
 
     </link>
 
+    <!-- ── Velocity control (existing) ──────────────────────────────── -->
     <plugin
       filename="gz-sim-velocity-control-system"
       name="gz::sim::systems::VelocityControl">
-
       <topic>/cmd_vel</topic>
+    </plugin>
 
+    <!-- ── Pose publisher (Phase 2) ─────────────────────────────────── -->
+    <!-- Publishes /model/quadrotor/pose as gz.msgs.Pose at 30 Hz       -->
+    <plugin
+      filename="gz-sim-pose-publisher-system"
+      name="gz::sim::systems::PosePublisher">
+      <publish_link_pose>true</publish_link_pose>
+      <publish_nested_model_pose>true</publish_nested_model_pose>
+      <update_rate>30</update_rate>
     </plugin>
 
   </model>

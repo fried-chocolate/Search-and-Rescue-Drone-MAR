@@ -1,6 +1,7 @@
 <sdf version="1.6">
   <world name="rescue_world">
 
+    <!-- ── Core simulation plugins ───────────────────────────────────────── -->
     <plugin
         filename="gz-sim-physics-system"
         name="gz::sim::systems::Physics"/>
@@ -13,11 +14,26 @@
         filename="gz-sim-scene-broadcaster-system"
         name="gz::sim::systems::SceneBroadcaster"/>
 
+    <!-- Phase 5: required for camera and IMU sensors to produce data -->
+    <plugin
+        filename="gz-sim-sensors-system"
+        name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+
+    <plugin
+        filename="gz-sim-imu-system"
+        name="gz::sim::systems::Imu"/>
+
+    <!-- ── Lighting ───────────────────────────────────────────────────────── -->
     <light type="directional" name="sun">
       <cast_shadows>true</cast_shadows>
       <direction>-0.5 0.1 -0.9</direction>
+      <diffuse>1.0 0.95 0.9 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
     </light>
 
+    <!-- ── Ground plane ───────────────────────────────────────────────────── -->
     <model name="ground">
       <static>true</static>
       <link name="link">
@@ -25,16 +41,150 @@
           <geometry>
             <plane>
               <normal>0 0 1</normal>
-              <size>100 100</size>
+              <size>200 200</size>
             </plane>
           </geometry>
         </collision>
         <visual name="visual">
           <geometry>
             <plane>
-              <size>100 100</size>
+              <size>200 200</size>
             </plane>
           </geometry>
+          <material>
+            <!-- Dusty ground colour -->
+            <ambient>0.50 0.42 0.32 1</ambient>
+            <diffuse>0.50 0.42 0.32 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ── Collapsed Building 1 ───────────────────────────────────────────── -->
+    <model name="building_1">
+      <static>true</static>
+      <pose>10 5 1.0 0.2 0.0 0.5</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>8 4 2</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>8 4 2</size></box></geometry>
+          <material>
+            <ambient>0.55 0.55 0.55 1</ambient>
+            <diffuse>0.55 0.55 0.55 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ── Collapsed Building 2 ───────────────────────────────────────────── -->
+    <model name="building_2">
+      <static>true</static>
+      <pose>-8 12 0.5 0.0 0.1 1.2</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>6 3 1</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>6 3 1</size></box></geometry>
+          <material>
+            <ambient>0.45 0.45 0.45 1</ambient>
+            <diffuse>0.45 0.45 0.45 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ── Rubble pile 1 ──────────────────────────────────────────────────── -->
+    <model name="rubble_1">
+      <static>true</static>
+      <pose>5 -8 0.3 0.1 0.2 0.5</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>2.0 1.5 0.6</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>2.0 1.5 0.6</size></box></geometry>
+          <material>
+            <ambient>0.45 0.38 0.30 1</ambient>
+            <diffuse>0.45 0.38 0.30 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ── Rubble pile 2 ──────────────────────────────────────────────────── -->
+    <model name="rubble_2">
+      <static>true</static>
+      <pose>-12 -6 0.25 0.05 0.1 1.0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>3.0 2.0 0.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>3.0 2.0 0.5</size></box></geometry>
+          <material>
+            <ambient>0.40 0.35 0.28 1</ambient>
+            <diffuse>0.40 0.35 0.28 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ── Car wreck ──────────────────────────────────────────────────────── -->
+    <model name="car_wreck">
+      <static>true</static>
+      <pose>-15 8 0.4 0 0 0.8</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>4.0 1.8 0.8</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>4.0 1.8 0.8</size></box></geometry>
+          <material>
+            <ambient>0.25 0.10 0.10 1</ambient>
+            <diffuse>0.25 0.10 0.10 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ── Victim 1 — bright red sphere near building 1 ──────────────────── -->
+    <!-- Used in Phase 6 victim detection: target for colour-blob detection  -->
+    <model name="victim_1">
+      <static>true</static>
+      <pose>12 3 0.3 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><sphere><radius>0.3</radius></sphere></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><sphere><radius>0.3</radius></sphere></geometry>
+          <material>
+            <ambient>1.0 0.0 0.0 1</ambient>
+            <diffuse>1.0 0.0 0.0 1</diffuse>
+            <emissive>0.4 0.0 0.0 1</emissive>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ── Victim 2 — bright red sphere near building 2 ──────────────────── -->
+    <model name="victim_2">
+      <static>true</static>
+      <pose>-6 14 0.3 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><sphere><radius>0.3</radius></sphere></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><sphere><radius>0.3</radius></sphere></geometry>
+          <material>
+            <ambient>1.0 0.0 0.0 1</ambient>
+            <diffuse>1.0 0.0 0.0 1</diffuse>
+            <emissive>0.4 0.0 0.0 1</emissive>
+          </material>
         </visual>
       </link>
     </model>

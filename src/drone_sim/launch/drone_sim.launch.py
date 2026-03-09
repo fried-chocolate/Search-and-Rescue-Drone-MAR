@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+"""
+Launch file for the search-and-rescue drone simulation.
+
+Starts (in order):
+  1. Gazebo Harmonic with rescue_world.sdf
+  2. All ros_gz_bridge bridges (clock, cmd_vel, pose, camera, IMU)
+  3. Drone model spawn (after 5 s to let Gazebo load)
+  4. Drone controller node (after 9 s to allow spawning)
+  5. Camera viewer node (after 12 s, once simulation is fully running)
+
+Usage after colcon build:
+  ros2 launch drone_sim drone_sim.launch.py
+"""
+
+import os
+
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import ExecuteProcess, TimerAction
+from launch_ros.actions import Node
+
+
+def generate_launch_description() -> LaunchDescription:
+    pkg = get_package_share_directory('drone_sim')
+    world_file = os.path.join(pkg, 'worlds', 'rescue_world.sdf')
+    model_file = os.path.join(pkg, 'models', 'drone.sdf')
+
+    # ── 1. Gazebo ─────────────────────────────────────────────────────────────
+    # -r = run immediately (no pause at startup)
+    gazebo = ExecuteProcess(
+        cmd=['gz', 'sim', '-r', world_file],
+        output='screen',
+    )
+
+    # ── 2. Topic bridges ──────────────────────────────────────────────────────
+    # Clock — needed so ROS2 nodes can use sim time
+    clock_bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        name='clock_bridge',
+        arguments=['/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock'],
+        output='screen',
+    )
+
+    # cmd_vel — bidirectional: ROS2 → Gazebo
+    cmd_vel_bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        name='cmd_vel_bridge',
+        arguments=['/cmd_vel@geometry_msgs/msg/Twist@gz.msgs.Twist'],
+        output='screen',
+    )
+
+    # Drone pose — Gazebo → ROS2 (Phase 2)
+    pose_bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        name='pose_bridge',
+        arguments=[
+            '/model/quadrotor/pose@geometry_msgs/msg/Pose[gz.msgs.Pose',
+        ],
+        output='screen',
+    )
+
+    # Camera image — Gazebo → ROS2 (Phase 5)
+    camera_bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        name='camera_bridge',
+        arguments=[
+            '/drone/camera@sensor_msgs/msg/Image[gz.msgs.Image',
+        ],
+        output='screen',
+    )
+
+    # Camera info — Gazebo → ROS2 (Phase 5)
+    camera_info_bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        name='camera_info_bridge',
+        arguments=[
+            '/drone/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
+        ],
+        output='screen',
+    )
+
+    # IMU — Gazebo → ROS2 (Phase 5)
+    imu_bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        name='imu_bridge',
+        arguments=[
+            '/drone/imu@sensor_msgs/msg/Imu[gz.msgs.IMU',
+        ],
+        output='screen',
+    )
+
+    # ── 3. Spawn drone (delayed 5 s) ──────────────────────────────────────────
+    spawn_drone = TimerAction(
+        period=5.0,
+        actions=[
+            ExecuteProcess(
+                cmd=[
+                    'gz', 'service',
+                    '-s', '/world/rescue_world/create',
+                    '--reqtype', 'gz.msgs.EntityFactory',
+                    '--reptype', 'gz.msgs.Boolean',
+                    '--timeout', '5000',
+                    '--req',
+                    f'sdf_filename: "{model_file}", name: "quadrotor"',
+                ],
+                output='screen',
+            ),
+        ],
+    )
+
+    # ── 4. Drone controller (delayed 9 s) ─────────────────────────────────────
+    drone_controller = TimerAction(
+        period=9.0,
+        actions=[
+            Node(
+                package='drone_sim',
+                executable='takeoff',
+                name='drone_control',
+                output='screen',
+            ),
+        ],
+    )
+
+    # ── 5. Camera viewer (delayed 12 s) ──────────────────────────────────────
+    camera_viewer = TimerAction(
+        period=12.0,
+        actions=[
+            Node(
+                package='drone_sim',
+                executable='camera_viewer',
+                name='camera_viewer',
+                output='screen',
+            ),
+        ],
+    )
+
+    return LaunchDescription([
+        gazebo,
+        clock_bridge,
+        cmd_vel_bridge,
+        pose_bridge,
+        camera_bridge,
+        camera_info_bridge,
+        imu_bridge,
+        spawn_drone,
+        drone_controller,
+        camera_viewer,
+    ])
