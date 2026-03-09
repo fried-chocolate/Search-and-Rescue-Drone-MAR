@@ -28,8 +28,19 @@ def generate_launch_description() -> LaunchDescription:
 
     # ── 1. Gazebo ─────────────────────────────────────────────────────────────
     # -r = run immediately (no pause at startup)
+    #
+    # LIBGL_ALWAYS_SOFTWARE=1 forces Mesa LLVMpipe (CPU software renderer).
+    # VirtualBox's VMSVGA3D driver advertises OpenGL 4.1 but its GLSL
+    # implementation is incomplete and crashes Ogre2's shader pipeline,
+    # causing a completely black render window.  LLVMpipe is fully conformant
+    # and slower, but correct.
+    # MESA_GL_VERSION_OVERRIDE ensures Mesa reports >= 3.3 to Ogre2.
     gazebo = ExecuteProcess(
         cmd=['gz', 'sim', '-r', world_file],
+        additional_env={
+            'LIBGL_ALWAYS_SOFTWARE': '1',
+            'MESA_GL_VERSION_OVERRIDE': '3.3',
+        },
         output='screen',
     )
 
