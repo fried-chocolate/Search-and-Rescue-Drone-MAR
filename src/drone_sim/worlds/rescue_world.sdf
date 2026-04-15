@@ -1,0 +1,171 @@
+<sdf version="1.6">
+  <world name="rescue_world">
+
+    <!-- ── Core simulation plugins ───────────────────────────────────────── -->
+    <plugin
+        filename="gz-sim-physics-system"
+        name="gz::sim::systems::Physics"/>
+
+    <plugin
+        filename="gz-sim-user-commands-system"
+        name="gz::sim::systems::UserCommands"/>
+
+    <plugin
+        filename="gz-sim-scene-broadcaster-system"
+        name="gz::sim::systems::SceneBroadcaster"/>
+
+    <!-- Phase 5: required for camera and IMU sensors to produce data -->
+    <plugin
+        filename="gz-sim-sensors-system"
+        name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+
+    <plugin
+        filename="gz-sim-imu-system"
+        name="gz::sim::systems::Imu"/>
+
+    <!-- ── Scene settings ─────────────────────────────────────────────────── -->
+    <!-- <sky><clouds> removed: Ogre2 cloud shaders hang gzserver on VMSVGA3D  -->
+    <scene>
+      <ambient>0.5 0.5 0.5 1</ambient>
+      <background>0.53 0.81 0.98 1</background>
+      <shadows>false</shadows>
+    </scene>
+
+    <!-- ── Lighting ───────────────────────────────────────────────────────── -->
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <direction>-0.5 0.1 -0.9</direction>
+      <diffuse>1.0 0.95 0.9 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+    </light>
+
+    <!-- ── Ground plane ───────────────────────────────────────────────────── -->
+    <model name="ground">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>200 200</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <size>200 200</size>
+            </plane>
+          </geometry>
+          <material>
+            <!-- Sandy disaster-zone ground (flat color; PBR textures reserved
+                 for when a real GPU renderer is available) -->
+            <ambient>0.52 0.44 0.33 1</ambient>
+            <diffuse>0.52 0.44 0.33 1</diffuse>
+            <specular>0.02 0.02 0.02 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ── Collapsed Building 1 ───────────────────────────────────────────── -->
+    <model name="building_1">
+      <static>true</static>
+      <pose>10 5 1.0 0.2 0.0 0.5</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>8 4 2</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>8 4 2</size></box></geometry>
+          <material>
+            <ambient>0.58 0.58 0.56 1</ambient>
+            <diffuse>0.58 0.58 0.56 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ── Collapsed Building 2 ───────────────────────────────────────────── -->
+    <model name="building_2">
+      <static>true</static>
+      <pose>-8 12 0.5 0.0 0.1 1.2</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>6 3 1</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>6 3 1</size></box></geometry>
+          <material>
+            <ambient>0.50 0.50 0.48 1</ambient>
+            <diffuse>0.50 0.50 0.48 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ── Rubble pile 1 ──────────────────────────────────────────────────── -->
+    <model name="rubble_1">
+      <static>true</static>
+      <pose>5 -8 0.3 0.1 0.2 0.5</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>2.0 1.5 0.6</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>2.0 1.5 0.6</size></box></geometry>
+          <material>
+            <ambient>0.45 0.38 0.30 1</ambient>
+            <diffuse>0.45 0.38 0.30 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ── Rubble pile 2 ──────────────────────────────────────────────────── -->
+    <model name="rubble_2">
+      <static>true</static>
+      <pose>-12 -6 0.25 0.05 0.1 1.0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>3.0 2.0 0.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>3.0 2.0 0.5</size></box></geometry>
+          <material>
+            <ambient>0.40 0.35 0.28 1</ambient>
+            <diffuse>0.40 0.35 0.28 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ── Car wreck — real Hatchback Red mesh (OBJ + PNG texture) ──────── -->
+    <!-- model://hatchback_red resolved via GZ_SIM_RESOURCE_PATH=models_dir  -->
+    <include>
+      <uri>model://hatchback_red</uri>
+      <name>car_wreck</name>
+      <!-- z=0: wheels rest on ground; yaw=0.8 rad tilts it for realism      -->
+      <pose>-15 8 0.0 0 0 0.8</pose>
+    </include>
+
+    <!-- ── Victim 1 — standing person near building 1 ────────────────────── -->
+    <!-- Uses COLLADA mesh with skin+clothing textures (person_standing model) -->
+    <include>
+      <uri>model://person_standing</uri>
+      <name>victim_1</name>
+      <pose>12 3 0.0 0 0 0</pose>
+    </include>
+
+    <!-- ── Victim 2 — standing person near building 2 ────────────────────── -->
+    <include>
+      <uri>model://person_standing</uri>
+      <name>victim_2</name>
+      <!-- Face a different direction so they look distinct                  -->
+      <pose>-6 14 0.0 0 0 2.3</pose>
+    </include>
+
+  </world>
+</sdf>

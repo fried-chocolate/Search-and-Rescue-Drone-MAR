@@ -1,0 +1,25 @@
+# ROS2 build folders
+build/
+install/
+log/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# VS Code
+.vscode/
+
+# JetBrains
+.idea/
+
+# system files
+.DS_Store
+
+# ROS bag files
+*.bag
+*.db3
+
+# Gazebo generated files
+*.state
