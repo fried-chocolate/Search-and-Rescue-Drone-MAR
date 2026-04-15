@@ -1,7 +1,19 @@
 # Search-and-Rescue Drone Simulation — Progress Track
 
-> Last updated: **2026-03-10** (model aesthetics upgrade)
+> Last updated: **2026-04-12** (repository-wide audit)
 > Stack: ROS2 Jazzy · Gazebo Harmonic · Python · SDF
+
+## Completion Snapshot (codebase audit)
+
+- ✅ **Completed**: Model aesthetics, launch orchestration, pose feedback, altitude PID,
+  lawnmower navigation, camera + IMU integration, camera HUD/mini-map viewer
+- 🟡 **In progress / tuning**: PID gains, long-run flight robustness
+- ⏳ **Not started**: Victim detection (Phase 6), obstacle avoidance (Phase 7),
+  multi-drone coordination (Phase 8)
+
+Approx. project completion against current roadmap:
+- Core simulation + autonomy baseline (Phases 1–5): **100%**
+- End-to-end SAR features (Phases 1–8): **~62%**
 
 ---
 
@@ -69,6 +81,33 @@ Added explicit `data_files` entries for every mesh and texture subfolder so
 - **New directories**: `models/quadrotor/`, `models/hatchback_red/`, `models/person_standing/`
 
 **Git commit**: `feat: replace box geometry with real 3D meshes (quadrotor DAE, hatchback OBJ, standing person DAE)`
+
+---
+
+## Bugfix Session 5 — Black camera on VirtualBox EGL path ✅ IMPLEMENTED IN LAUNCH
+
+### Problem
+Even after forcing software GL for the GUI, the **camera sensor** could still go black
+because it renders through EGL, not GLX.
+
+### Current launch-side fix
+`launch/drone_sim.launch.py` now exports:
+
+```python
+'EGL_PLATFORM': 'x11'
+```
+
+with:
+
+```python
+'LIBGL_ALWAYS_SOFTWARE': '1'
+'MESA_GL_VERSION_OVERRIDE': '3.3'
+```
+
+This keeps both GUI and sensor rendering on a software-compatible path in this setup.
+
+### Files changed
+- `launch/drone_sim.launch.py` — added `EGL_PLATFORM=x11`
 
 ---
 
@@ -141,23 +180,16 @@ without a real GPU.
 
 
 
-### Camera still black after session 1
-The first fix (`LIBGL_ALWAYS_SOFTWARE=1`) only affects **GLX** (Gazebo GUI window).
-The camera sensor renders **server-side via EGL**, which ignores that env var.
-Proof: `libEGL warning: Not allowed to force software rendering when API explicitly selects a hardware device`.
-
-**Root cause**: Gazebo Harmonic's Ogre2 uses `EGLDevice` enumeration to pick the display.
-Once an explicit hardware device is selected, `LIBGL_ALWAYS_SOFTWARE` is ignored.
-
-**Fix**: `MESA_LOADER_DRIVER_OVERRIDE=llvmpipe` — overrides at the DRI-loader level
-**before** EGL device selection occurs. Combined with `GALLIUM_DRIVER=llvmpipe` and
-`MESA_GLSL_VERSION_OVERRIDE=330`.
+### Camera black-frame follow-up
+Earlier loader-level overrides (`MESA_LOADER_DRIVER_OVERRIDE`, `GALLIUM_DRIVER`)
+were unstable in this environment and caused EGL/Mesa crashes. The current launch
+configuration instead uses `EGL_PLATFORM=x11` + software GL vars.
 
 ### Textures
 No textures ship with Gazebo Harmonic. Generated procedurally with **Python PIL**:
 - `worlds/textures/ground.png` (1024×1024) — sandy disaster-zone terrain with
-  dark ash patches and crack lines. Used as PBR `albedo_map` on the ground plane.
-  **This is also what the drone camera sees when looking straight down.**
+  dark ash patches and crack lines. *(Asset exists; not currently bound in world SDF,
+  which uses flat legacy material for compatibility.)*
 - `worlds/textures/concrete.png` (512×512) — gray concrete tiles for buildings.
 - `GZ_SIM_RESOURCE_PATH` set to the installed `worlds/` directory in the launch file
   so Ogre2 can find the textures.
@@ -190,7 +222,7 @@ renders the scene with the same Ogre2 backend).
 | File | Fix |
 |---|---|
 | `launch/drone_sim.launch.py` | Added `LIBGL_ALWAYS_SOFTWARE=1` + `MESA_GL_VERSION_OVERRIDE=3.3` to Gazebo `ExecuteProcess`. Forces Mesa **LLVMpipe** (CPU software renderer), which is fully conformant and correctly runs Ogre2 GLSL shaders. |
-| `worlds/rescue_world.sdf` | Added `<scene>` block with ambient light, sky-blue background, and clouds so Ogre2 always has a valid scene to initialize against. |
+| `worlds/rescue_world.sdf` | Added `<scene>` block with ambient light and sky-blue background so Ogre2 always has a valid scene to initialize against. |
 | `drone_sim/takeoff.py` | Wrapped `rclpy.shutdown()` in `try/except` — SIGINT already calls shutdown; the `finally` block was raising `RCLError` (harmless but noisy). |
 | `drone_sim/camera_viewer.py` | Same SIGINT double-shutdown fix as `takeoff.py`. |
 
@@ -254,14 +286,14 @@ Simulation physics and sensor data are unaffected by rendering frame rate.
 
 **What was done**
 - Implemented `generate_lawnmower()` in `takeoff.py`
-  - Grid: X ∈ [−20, 20], Y ∈ [−20, 20], lane spacing 5 m
+  - Grid: X ∈ [−13, 13], Y ∈ [−13, 13], lane spacing 3.5 m
   - Produces 18 waypoints covering the entire search area
 - Waypoint navigator:
   - Computes heading error to next waypoint
   - Proportional yaw-rate control (turns to face waypoint)
   - Forward speed scales with alignment (`cos(yaw_err)`)
   - Small lateral correction to cancel drift
-  - Waypoint accepted within 1.5 m radius
+  - Waypoint accepted within 1.2 m radius
 - Phase state machine: `wait_pose → takeoff → search → hover`
 
 **Rescue world updated** (`rescue_world.sdf`)
@@ -329,7 +361,7 @@ Simulation physics and sensor data are unaffected by rendering frame rate.
 
 ### Build
 ```bash
-cd ~/drone_ws
+cd ~/mar-mini-project
 source /opt/ros/jazzy/setup.bash
 colcon build --packages-select drone_sim
 source install/setup.bash
@@ -340,7 +372,7 @@ source install/setup.bash
 ros2 launch drone_sim drone_sim.launch.py
 ```
 
-### Or manually (5 terminals — legacy method)
+### Or manually (8 terminals — legacy method)
 ```bash
 # T1 — Gazebo
 gz sim worlds/rescue_world.sdf -r
@@ -381,14 +413,16 @@ ros2 run drone_sim camera_viewer
 
 ## Known Issues / TODOs
 
-- [ ] **VirtualBox camera**: ogre2 renderer requires 3D acceleration for the EGL
-  (sensor) path. Camera window is always black on VirtualBox + VMSVGA3D without a
-  real GPU. GLX (Gazebo GUI) works correctly via LLVMpipe software rendering.
+- [ ] **Rendering portability**: camera output depends on host graphics stack.
+  Current launch defaults (`EGL_PLATFORM=x11`, software GL env) are tuned for this
+  VM setup and may require adjustment on other machines.
 - [ ] **PID tuning**: Gains (Kp/Ki/Kd) may need adjustment after real
   simulation testing — depends on physics step size and model mass.
 - [ ] **Body-frame vs world-frame velocities**: VelocityControl applies
   velocities in the body frame. If the drone tilts significantly, the
   altitude PID output (`linear.z`) will not be purely vertical.
+- [ ] **Metadata cleanup**: `package.xml` still contains placeholder
+  description/license fields (`TODO`).
 
 ---
 
