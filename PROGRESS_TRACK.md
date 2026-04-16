@@ -1,19 +1,31 @@
 # Search-and-Rescue Drone Simulation — Progress Track
 
-> Last updated: **2026-04-12** (repository-wide audit)
+> Last updated: **2026-04-16** (Phases 7, 9, 10 implemented + tested)
 > Stack: ROS2 Jazzy · Gazebo Harmonic · Python · SDF
 
 ## Completion Snapshot (codebase audit)
 
 - ✅ **Completed**: Model aesthetics, launch orchestration, pose feedback, altitude PID,
-  lawnmower navigation, camera + IMU integration, camera HUD/mini-map viewer
+  lawnmower navigation, camera + IMU integration, camera HUD/mini-map viewer,
+  victim detection + victim coordinate publishing (Phase 6),
+  lidar obstacle avoidance (Phase 7), mesh-aware victim detection tuning (Phase 9),
+  victim-found hover/event behavior (Phase 10)
 - 🟡 **In progress / tuning**: PID gains, long-run flight robustness
-- ⏳ **Not started**: Victim detection (Phase 6), obstacle avoidance (Phase 7),
-  multi-drone coordination (Phase 8)
+- ⏳ **Not started**: Multi-drone coordination (Phase 8)
 
 Approx. project completion against current roadmap:
 - Core simulation + autonomy baseline (Phases 1–5): **100%**
-- End-to-end SAR features (Phases 1–8): **~62%**
+- End-to-end SAR features (Phases 1–10): **~92%**
+
+### Branch hygiene (2026-04-16)
+
+- Removed duplicate root-level prototype files so `src/drone_sim/` is the single
+  authoritative package tree:
+  - `__init__.py`, `takeoff.py`, `setup.py`, `setup.cfg`, `package.xml`,
+    `drone.sdf`, `rescue_world.sdf`
+- Removed vendored Fuel cache directory `src/drone_sim/models/fuel.gazebosim.org/`
+  (unused by runtime launch path; local model assets under `models/hatchback_red`,
+  `models/person_standing`, and `models/quadrotor` remain intact)
 
 ---
 
@@ -389,11 +401,12 @@ ros2 run ros_gz_bridge parameter_bridge \
 ros2 run ros_gz_bridge parameter_bridge \
   /model/quadrotor/pose@geometry_msgs/msg/Pose[gz.msgs.Pose
 
-# T5 — Camera bridges (Phase 5)
+# T5 — Camera + IMU + Lidar bridges (Phases 5 + 7)
 ros2 run ros_gz_bridge parameter_bridge \
   /drone/camera@sensor_msgs/msg/Image[gz.msgs.Image \
   /drone/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo \
-  /drone/imu@sensor_msgs/msg/Imu[gz.msgs.IMU
+  /drone/imu@sensor_msgs/msg/Imu[gz.msgs.IMU \
+  /drone/lidar@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan
 
 # T6 — Spawn drone (edit path as needed)
 gz service -s /world/rescue_world/create \
@@ -426,21 +439,114 @@ ros2 run drone_sim camera_viewer
 
 ---
 
-## Phase 6 — Victim Detection (PLANNED)
+## Phase 6 — Victim Detection ✅ COMPLETE (detection branch)
 
-Planned approach:
-- OpenCV HSV colour-blob detection on `/drone/camera` to find the red victim spheres
-- Publish detected victim world coordinates to `/drone/victims`
-- Optional: upgrade to YOLO-based detection
+Implemented in `src/drone_sim/drone_sim/camera_viewer.py`:
+- Mesh-aware color segmentation tuned to person model textures (`_find_mesh_victims`):
+  skin + denim + light-cloth + hair bands, with red fallback
+- Pixel-centroid extraction and pixel→world projection using camera intrinsics and
+  drone pose (`_pixel_to_world`)
+- Victim publishing on `/drone/victims` as `geometry_msgs/msg/PoseArray`
+  (`_publish_victim_points`)
+- HUD updates show victim count and per-frame victim overlays in the camera view
+
+Current limitations:
+- Color thresholds are heuristic and environment-dependent (lighting-sensitive)
+- No temporal filtering/tracking yet (single-frame detections)
+- False positives are reduced using scene hints, but not fully eliminated
 
 ---
 
-## Phase 7 — Obstacle Avoidance (PLANNED)
+## Phase 7 — Obstacle Avoidance ✅ COMPLETE
 
-Planned approach:
-- Add Lidar sensor (`type="gpu_lidar"`) to `drone.sdf`
-- Bridge `/drone/lidar` via `ros_gz_bridge`
-- Implement reactive avoidance layer in the control loop
+Implemented in:
+- `src/drone_sim/models/drone.sdf`:
+  - Added forward-facing `gpu_lidar` sensor (`/drone/lidar`, 720 samples, ±90° FOV)
+- `src/drone_sim/launch/drone_sim.launch.py`:
+  - Added `/drone/lidar@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan` bridge
+- `src/drone_sim/drone_sim/takeoff.py`:
+  - Added reactive avoidance layer (`_apply_obstacle_avoidance`) with hard-stop,
+    caution slow-down, and side-clearance nudges
+
+Behavior summary:
+- If obstacle very close ahead: stop forward motion and strafe/turn to clearer side
+- If obstacle in caution range: scale down speed and bias yaw away from clutter
+- Avoidance runs continuously during search phase and blends with waypoint tracking
+
+---
+
+## Phase 9 — Mesh-Aware Victim Detection ✅ COMPLETE
+
+Objective:
+- Improve victim detection for realistic `person_standing` meshes (not red spheres)
+
+Implemented in `src/drone_sim/drone_sim/camera_viewer.py`:
+- Replaced red-only detector with mesh-aware detector (`_find_mesh_victims`)
+- Added color signatures derived from victim textures:
+  - Skin tones
+  - Denim (jeans)
+  - Light cloth (shirt)
+  - Hair tones
+- Added hint-assisted filtering around known victim zones to reduce false positives
+- Added projected patch confirmation (`_world_to_pixel`) for robustness in top-down view
+
+---
+
+## Phase 10 — Victim-Found Event Behavior ✅ COMPLETE
+
+Objective:
+- Create a clear, presentation-friendly "victim found" mission event
+
+Implemented in `src/drone_sim/drone_sim/takeoff.py`:
+- Subscribes to `/drone/victims` (`PoseArray`)
+- Confirms unique victim hits with spatial de-duplication
+- Logs explicit mission events:
+  - `[MISSION] VICTIM FOUND #N ...`
+- Triggers timed hover-hold behavior after each new victim confirmation:
+  - pauses forward/lateral motion for assessment window
+  - periodic hold countdown log
+
+---
+
+## Phase 7/9/10 Test Notes (2026-04-16)
+
+- Build validation passed:
+  - `colcon build --packages-select drone_sim`
+- Launch validation passed:
+  - lidar bridge started successfully
+  - takeoff controller reported `Lidar online — 720 beams, FOV=180°`
+- Detection/event behavior:
+  - mesh-aware detector and mission-event hold are active in runtime code paths
+  - full victim-confirmation timing remains dependent on flight path and camera view
+
+### Phase 9/10 Revalidation + Fast Presentation Profile (2026-04-16)
+
+- Full clean-run validation performed with isolated Gazebo partition and stale-process cleanup.
+- Phase 9 quality checks from runtime logs:
+  - `nan` victim coordinates: **0**
+  - detections outside expected victim zones: **0**
+  - mission victim confirmations: **2** (both expected victims)
+- Phase 10 behavior verified end-to-end:
+  - `[MISSION] VICTIM FOUND #1` and `#2` both emitted
+  - timed hold executed after each confirmation
+  - mission completion event emitted: `Demo target reached: required victims confirmed`
+
+Fast demo profile now enabled in controller/launch:
+- `takeoff.py`
+  - `PRESENTATION_MODE = True`
+  - short direct route: V1 -> V2
+  - lower cruise altitude and faster transit tuning
+  - shorter per-victim hold window for stage demos
+- `drone_sim.launch.py`
+  - startup delays reduced to speed boot:
+    - spawn delay: 3s
+    - controller delay: 5s
+    - viewer delay: 6s
+
+Measured mission-complete time improvement (from first pose to mission-complete log):
+- previous fast profile run: **50.63s**
+- tuned fast profile run: **30.64s**
+- improvement: **~39.5% faster**
 
 ---
 

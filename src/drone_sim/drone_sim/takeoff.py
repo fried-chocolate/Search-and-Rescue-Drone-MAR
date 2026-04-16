@@ -5,6 +5,9 @@ Drone autonomous control node.
 Phase 2 — Real pose feedback  : subscribes to /model/quadrotor/pose
 Phase 3 — Altitude PID        : holds cruise altitude with a PID controller
 Phase 4 — Lawnmower search    : navigates a boustrophedon (zigzag) grid pattern
+Phase 7 — Obstacle avoidance  : reactive lidar-based avoidance layer
+Phase 10 — Victim event mode  : hover-hold + mission logs on victim confirmation
+Presentation mode             : short, victim-focused route for fast demos
 """
 
 import math
@@ -12,7 +15,9 @@ import time
 
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Twist, Pose
+from rclpy.qos import qos_profile_sensor_data
+from geometry_msgs.msg import Twist, Pose, PoseArray
+from sensor_msgs.msg import LaserScan
 
 
 # ── PID Controller ────────────────────────────────────────────────────────────
@@ -95,20 +100,48 @@ def generate_lawnmower(x_min: float, x_max: float,
     return waypoints
 
 
+def generate_presentation_route(altitude: float) -> list[tuple[float, float, float]]:
+    """
+    Short route that visits both victim zones quickly for presentation demos.
+
+    The route starts near spawn and reaches V1 then V2 with minimal detours.
+    """
+    points = [
+        (12.0, 1.0),   # victim zone V1
+        (-4.0, 14.0),  # victim zone V2
+    ]
+    return [(x, y, altitude) for x, y in points]
+
+
 # ── Parameters ────────────────────────────────────────────────────────────────
 
-CRUISE_ALT     = 8.0    # metres — target cruising altitude
-TAKEOFF_TOL    = 0.5    # metres — altitude tolerance to leave takeoff phase
-WP_RADIUS      = 1.2    # metres — "waypoint reached" acceptance radius
-MAX_XY_SPEED   = 2.5    # m/s    — horizontal speed cap
-MAX_YAW_RATE   = 1.2    # rad/s  — yaw rate cap
+CRUISE_ALT     = 5.2    # metres — lower cruise altitude for faster demo startup
+TAKEOFF_TOL    = 0.4    # metres — altitude tolerance to leave takeoff phase
+WP_RADIUS      = 2.2    # metres — "waypoint reached" acceptance radius
+MAX_XY_SPEED   = 4.3    # m/s    — horizontal speed cap
+MAX_YAW_RATE   = 1.9    # rad/s  — yaw rate cap
 CTRL_HZ        = 10.0   # Hz     — control-loop frequency
+PRESENTATION_MODE = True
+TARGET_VICTIMS_FOR_DEMO = 2
 
 # Lawnmower search grid (metres, world frame)
 # Kept to ±13 m to match the obstacle/victim placement area.
 GRID_X_MIN,  GRID_X_MAX  = -13.0, 13.0
 GRID_Y_MIN,  GRID_Y_MAX  = -13.0, 13.0
 GRID_LANE_STEP            =   3.5
+
+# Phase 7: reactive obstacle avoidance thresholds (metres)
+LIDAR_STOP_DIST   = 2.2
+LIDAR_CAUTION_DIST = 4.5
+LIDAR_SIDE_DIST   = 1.5
+AVOID_LOG_PERIOD  = 1.5   # seconds
+
+# Phase 10: victim confirmation and event-hold behavior
+VICTIM_CONFIRM_RADIUS = 3.0   # metres: merge duplicate detections nearby
+VICTIM_HOLD_SEC = 1.0         # seconds: brief hold for presentation cue
+VICTIM_HOLD_LOG_PERIOD = 1.0  # seconds
+VICTIM_HINTS = [(12.0, 1.0), (-4.0, 14.0)]
+VICTIM_HINT_ACCEPT_RADIUS = 4.5
 
 
 # ── Main Control Node ─────────────────────────────────────────────────────────
@@ -129,16 +162,50 @@ class DroneControl(Node):
             10,
         )
 
+        # Phase 7: forward lidar feed for reactive obstacle avoidance
+        self._lidar_sub = self.create_subscription(
+            LaserScan,
+            '/drone/lidar',
+            self._lidar_callback,
+            qos_profile_sensor_data,
+        )
+
+        # Phase 10: victim detections from camera node.
+        self._victim_sub = self.create_subscription(
+            PoseArray,
+            '/drone/victims',
+            self._victim_callback,
+            10,
+        )
+
         # ── State ────────────────────────────────────────────────────────────
         self._pose: Pose | None = None
         self._phase = 'wait_pose'   # wait_pose → takeoff → search → hover
 
+        # Latest lidar scan cache (Phase 7)
+        self._scan_ranges: list[float] = []
+        self._scan_angle_min = 0.0
+        self._scan_angle_increment = 0.0
+        self._scan_range_min = 0.0
+        self._scan_range_max = 0.0
+        self._lidar_online = False
+        self._last_avoid_log = 0.0
+
+        # Phase 10 state
+        self._confirmed_victims: list[tuple[float, float]] = []
+        self._victim_hold_until = 0.0
+        self._last_hold_log = 0.0
+        self._mission_complete_announced = False
+
         # Phase 4: pre-generate the full lawnmower waypoint list
-        self._waypoints = generate_lawnmower(
-            GRID_X_MIN, GRID_X_MAX,
-            GRID_Y_MIN, GRID_Y_MAX,
-            GRID_LANE_STEP, CRUISE_ALT,
-        )
+        if PRESENTATION_MODE:
+            self._waypoints = generate_presentation_route(CRUISE_ALT)
+        else:
+            self._waypoints = generate_lawnmower(
+                GRID_X_MIN, GRID_X_MAX,
+                GRID_Y_MIN, GRID_Y_MAX,
+                GRID_LANE_STEP, CRUISE_ALT,
+            )
         self._wp_index = 0
 
         # Phase 3: altitude PID (Kp=1.5, Ki=0.05, Kd=0.8)
@@ -151,8 +218,9 @@ class DroneControl(Node):
         # ── Timer ────────────────────────────────────────────────────────────
         self.create_timer(1.0 / CTRL_HZ, self._control_loop)
 
+        mode = 'presentation-fast' if PRESENTATION_MODE else 'coverage-lawnmower'
         self.get_logger().info(
-            f'DroneControl started — {len(self._waypoints)} waypoints queued.'
+            f'DroneControl started ({mode}) — {len(self._waypoints)} waypoints queued.'
             ' Waiting for first pose message…'
         )
 
@@ -164,6 +232,146 @@ class DroneControl(Node):
         if self._phase == 'wait_pose':
             self._phase = 'takeoff'
             self.get_logger().info('Pose received — beginning takeoff.')
+
+    def _lidar_callback(self, msg: LaserScan) -> None:
+        """Phase 7: cache latest lidar scan for obstacle-avoidance checks."""
+        self._scan_ranges = list(msg.ranges)
+        self._scan_angle_min = msg.angle_min
+        self._scan_angle_increment = msg.angle_increment
+        self._scan_range_min = msg.range_min
+        self._scan_range_max = msg.range_max
+
+        if not self._lidar_online:
+            self._lidar_online = True
+            fov = math.degrees(msg.angle_max - msg.angle_min)
+            self.get_logger().info(
+                f'Lidar online — {len(msg.ranges)} beams, FOV={fov:.0f}°.'
+            )
+
+    def _victim_callback(self, msg: PoseArray) -> None:
+        """Phase 10: confirm new victims and trigger event-hold behavior."""
+        if self._phase != 'search':
+            return
+
+        if not msg.poses:
+            return
+
+        new_hits: list[tuple[float, float]] = []
+        for pose in msg.poses:
+            vx = pose.position.x
+            vy = pose.position.y
+            if not (math.isfinite(vx) and math.isfinite(vy)):
+                continue
+
+            # Demo scenario gating: confirm only victims within expected zones.
+            in_expected_zone = any(
+                math.hypot(vx - hx, vy - hy) <= VICTIM_HINT_ACCEPT_RADIUS
+                for hx, hy in VICTIM_HINTS
+            )
+            if not in_expected_zone:
+                continue
+
+            duplicate = any(
+                math.hypot(vx - cx, vy - cy) < VICTIM_CONFIRM_RADIUS
+                for cx, cy in self._confirmed_victims
+            )
+            if duplicate:
+                continue
+
+            self._confirmed_victims.append((vx, vy))
+            new_hits.append((vx, vy))
+
+        if not new_hits:
+            return
+
+        self._victim_hold_until = max(
+            self._victim_hold_until,
+            time.monotonic() + VICTIM_HOLD_SEC,
+        )
+
+        start_idx = len(self._confirmed_victims) - len(new_hits) + 1
+        for idx, (vx, vy) in enumerate(new_hits, start=start_idx):
+            self.get_logger().warn(
+                f'[MISSION] VICTIM FOUND #{idx} at ({vx:+.1f}, {vy:+.1f}) m '
+                f'— hold for {VICTIM_HOLD_SEC:.0f}s.'
+            )
+
+    def _sector_min(self, start_deg: float, end_deg: float) -> float:
+        """Return minimum valid range in the requested angular sector."""
+        if not self._scan_ranges or abs(self._scan_angle_increment) < 1e-9:
+            return float('inf')
+
+        start = math.radians(start_deg)
+        end = math.radians(end_deg)
+        angle = self._scan_angle_min
+        min_dist = float('inf')
+
+        for rng in self._scan_ranges:
+            if start <= angle <= end:
+                if math.isfinite(rng) and self._scan_range_min < rng < self._scan_range_max:
+                    min_dist = min(min_dist, rng)
+            angle += self._scan_angle_increment
+
+        return min_dist
+
+    def _log_avoid(self, mode: str,
+                   front: float, left: float, right: float) -> None:
+        """Rate-limited obstacle-avoidance telemetry."""
+        now = time.monotonic()
+        if now - self._last_avoid_log < AVOID_LOG_PERIOD:
+            return
+        self._last_avoid_log = now
+
+        def fmt(val: float) -> str:
+            return f'{val:.2f}' if math.isfinite(val) else 'inf'
+
+        self.get_logger().info(
+            f'[AVOID:{mode}] front={fmt(front)}m '
+            f'left={fmt(left)}m right={fmt(right)}m'
+        )
+
+    def _apply_obstacle_avoidance(self, cmd: Twist) -> None:
+        """Phase 7: blend reactive avoidance into navigation commands."""
+        if not self._scan_ranges:
+            return
+
+        front_min = self._sector_min(-20.0, 20.0)
+        left_min = self._sector_min(20.0, 100.0)
+        right_min = self._sector_min(-100.0, -20.0)
+
+        # Hard block: stop forward motion and strafe/turn toward clearer side.
+        if front_min < LIDAR_STOP_DIST:
+            turn_sign = 1.0 if left_min >= right_min else -1.0
+            cmd.linear.x = 0.0
+            cmd.linear.y = 0.9 * turn_sign
+            cmd.angular.z = MAX_YAW_RATE * turn_sign
+            self._log_avoid('hard', front_min, left_min, right_min)
+            return
+
+        # Caution zone: reduce forward speed and bias heading away from clutter.
+        if front_min < LIDAR_CAUTION_DIST:
+            span = max(0.1, LIDAR_CAUTION_DIST - LIDAR_STOP_DIST)
+            scale = max(0.15, min(1.0, (front_min - LIDAR_STOP_DIST) / span))
+            cmd.linear.x *= scale
+
+            if left_min < right_min:
+                cmd.angular.z -= 0.6
+            elif right_min < left_min:
+                cmd.angular.z += 0.6
+
+        # Side clearance nudges.
+        if left_min < LIDAR_SIDE_DIST and right_min >= left_min:
+            cmd.linear.y -= 0.5
+        if right_min < LIDAR_SIDE_DIST and left_min > right_min:
+            cmd.linear.y += 0.5
+
+        cmd.linear.y = max(-1.2, min(1.2, cmd.linear.y))
+        cmd.angular.z = max(-MAX_YAW_RATE, min(MAX_YAW_RATE, cmd.angular.z))
+
+        if (front_min < LIDAR_CAUTION_DIST
+                or left_min < LIDAR_SIDE_DIST
+                or right_min < LIDAR_SIDE_DIST):
+            self._log_avoid('caution', front_min, left_min, right_min)
 
     # ── Control loop ──────────────────────────────────────────────────────────
 
@@ -192,7 +400,8 @@ class DroneControl(Node):
                           f'→ ({wx:.0f},{wy:.0f}) dist={dist_to_wp:.1f}m')
             self.get_logger().info(
                 f'[NAV] x={x:+.1f}m y={y:+.1f}m z={z:.1f}m '
-                f'yaw={math.degrees(yaw):+.0f}° | {self._phase} | {wp_str}'
+                f'yaw={math.degrees(yaw):+.0f}° | {self._phase} '
+                f'| victims={len(self._confirmed_victims)} | {wp_str}'
             )
 
         # Phase 3: altitude PID is active during every flying phase
@@ -211,6 +420,37 @@ class DroneControl(Node):
 
         # ----- SEARCH (lawnmower) ---------------------------------------------
         if self._phase == 'search':
+            now = time.monotonic()
+
+            # Phase 10: pause and hover briefly after new victim confirmation.
+            if now < self._victim_hold_until:
+                cmd.linear.x = 0.0
+                cmd.linear.y = 0.0
+                cmd.angular.z = 0.0
+
+                if now - self._last_hold_log >= VICTIM_HOLD_LOG_PERIOD:
+                    self._last_hold_log = now
+                    remain = self._victim_hold_until - now
+                    self.get_logger().info(
+                        f'[MISSION] Holding for victim assessment '
+                        f'({remain:.1f}s remaining).'
+                    )
+
+                self._pub.publish(cmd)
+                return
+
+            if (PRESENTATION_MODE
+                    and len(self._confirmed_victims) >= TARGET_VICTIMS_FOR_DEMO):
+                self._phase = 'hover'
+                if not self._mission_complete_announced:
+                    self._mission_complete_announced = True
+                    self.get_logger().warn(
+                        '[MISSION] Demo target reached: required victims confirmed. '
+                        'Switching to hover.'
+                    )
+                self._pub.publish(cmd)
+                return
+
             if self._wp_index >= len(self._waypoints):
                 self._phase = 'hover'
                 self.get_logger().info(
@@ -250,6 +490,9 @@ class DroneControl(Node):
 
             # Small lateral correction to cancel crosswind / drift
             cmd.linear.y = -math.sin(yaw_err) * 0.5
+
+            # Phase 7: obstacle avoidance adjusts cmd in-place when needed.
+            self._apply_obstacle_avoidance(cmd)
 
             self._pub.publish(cmd)
             return

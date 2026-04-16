@@ -4,20 +4,21 @@ Launch file for the search-and-rescue drone simulation.
 
 Starts (in order):
   1. Gazebo Harmonic with rescue_world.sdf
-  2. All ros_gz_bridge bridges (clock, cmd_vel, pose, camera, IMU)
-  3. Drone model spawn (after 5 s to let Gazebo load)
-  4. Drone controller node (after 9 s to allow spawning)
-  5. Camera viewer node (after 12 s, once simulation is fully running)
+    2. All ros_gz_bridge bridges (clock, cmd_vel, pose, camera, IMU, lidar)
+        3. Drone model spawn (after 3 s to let Gazebo load)
+        4. Drone controller node (after 5 s to allow spawning)
+        5. Camera viewer node (after 6 s, once simulation is fully running)
 
 Usage after colcon build:
   ros2 launch drone_sim drone_sim.launch.py
 """
 
 import os
+import time
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import ExecuteProcess, TimerAction
+from launch.actions import ExecuteProcess, TimerAction, SetEnvironmentVariable, LogInfo
 from launch_ros.actions import Node
 
 
@@ -29,6 +30,9 @@ def generate_launch_description() -> LaunchDescription:
     # models_dir is where quadrotor/, hatchback_red/, person_standing/ live
     # Gazebo resolves model:// URIs by searching each dir in GZ_SIM_RESOURCE_PATH
     models_dir = os.path.join(pkg, 'models')
+
+    # Prevent cross-talk with stale Gazebo servers by using a launch-unique partition.
+    gz_partition = f'drone_sim_{os.getpid()}_{int(time.time())}'
 
     # ── 1. Gazebo ─────────────────────────────────────────────────────────────
     # -r = run immediately (no pause at startup)
@@ -60,6 +64,7 @@ def generate_launch_description() -> LaunchDescription:
             # Colon-separated: Gazebo searches each dir for model:// URIs and
             # resource files (textures, etc.)
             'GZ_SIM_RESOURCE_PATH': f'{worlds_dir}:{models_dir}',
+            'GZ_PARTITION': gz_partition,
         },
         output='screen',
     )
@@ -127,9 +132,20 @@ def generate_launch_description() -> LaunchDescription:
         output='screen',
     )
 
-    # ── 3. Spawn drone (delayed 8 s) ──────────────────────────────────────────
+    # Lidar — Gazebo → ROS2 (Phase 7)
+    lidar_bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        name='lidar_bridge',
+        arguments=[
+            '/drone/lidar@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan',
+        ],
+        output='screen',
+    )
+
+    # ── 3. Spawn drone (delayed 3 s) ──────────────────────────────────────────
     spawn_drone = TimerAction(
-        period=8.0,
+        period=3.0,
         actions=[
             ExecuteProcess(
                 cmd=[
@@ -146,9 +162,9 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
-    # ── 4. Drone controller (delayed 13 s) ────────────────────────────────────
+    # ── 4. Drone controller (delayed 5 s) ─────────────────────────────────────
     drone_controller = TimerAction(
-        period=13.0,
+        period=5.0,
         actions=[
             Node(
                 package='drone_sim',
@@ -159,9 +175,9 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
-    # ── 5. Camera viewer (delayed 16 s) ──────────────────────────────────────
+    # ── 5. Camera viewer (delayed 6 s) ────────────────────────────────────────
     camera_viewer = TimerAction(
-        period=16.0,
+        period=6.0,
         actions=[
             Node(
                 package='drone_sim',
@@ -173,6 +189,8 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     return LaunchDescription([
+        SetEnvironmentVariable('GZ_PARTITION', gz_partition),
+        LogInfo(msg=f'Using GZ_PARTITION={gz_partition}'),
         gazebo,
         clock_bridge,
         cmd_vel_bridge,
@@ -180,6 +198,7 @@ def generate_launch_description() -> LaunchDescription:
         camera_bridge,
         camera_info_bridge,
         imu_bridge,
+        lidar_bridge,
         spawn_drone,
         drone_controller,
         camera_viewer,
