@@ -1,0 +1,155 @@
+<sdf version="1.7">
+  <model name="quadrotor">
+
+    <pose>0 0 0.05 0 0 0</pose>
+    <static>false</static>
+
+    <link name="base_link">
+
+      <!-- Inertia from osrf/gazebo_models quadrotor (mass 1.316 kg) -->
+      <inertial>
+        <mass>1.316</mass>
+        <inertia>
+          <ixx>0.0128</ixx>
+          <iyy>0.0128</iyy>
+          <izz>0.0218</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+
+      <!-- Box collision kept for fast physics; mesh used only for visual -->
+      <collision name="collision">
+        <geometry>
+          <box>
+            <size>0.52 0.52 0.12</size>
+          </box>
+        </geometry>
+      </collision>
+
+      <!-- Real quadrotor COLLADA mesh (from osrf/gazebo_models) -->
+      <visual name="visual">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://quadrotor/meshes/quadrotor_base.dae</uri>
+            <scale>1 1 1</scale>
+          </mesh>
+        </geometry>
+      </visual>
+
+      <!-- Bright marker keeps the drone easy to spot in the Gazebo GUI. -->
+      <visual name="beacon_visual">
+        <pose>0 0 0.18 0 0 0</pose>
+        <geometry>
+          <sphere>
+            <radius>0.10</radius>
+          </sphere>
+        </geometry>
+        <material>
+          <ambient>1.0 0.25 0.05 1</ambient>
+          <diffuse>1.0 0.25 0.05 1</diffuse>
+          <emissive>0.8 0.2 0.05 1</emissive>
+          <specular>0.2 0.1 0.05 1</specular>
+        </material>
+      </visual>
+
+      <!-- ── Downward-facing camera (Phase 5) ─────────────────────────── -->
+      <!-- Pose: mounted on bottom, pitched -90° so it looks straight down  -->
+      <sensor name="camera" type="camera">
+        <pose>0 0 -0.06 0 1.5708 0</pose>
+        <always_on>true</always_on>
+        <update_rate>30</update_rate>
+        <visualize>true</visualize>
+        <topic>/drone/camera</topic>
+        <camera name="drone_cam">
+          <horizontal_fov>1.047</horizontal_fov>
+          <image>
+            <width>640</width>
+            <height>480</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip>
+            <near>0.1</near>
+            <far>100</far>
+          </clip>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.007</stddev>
+          </noise>
+        </camera>
+      </sensor>
+
+      <!-- ── IMU sensor (Phase 5) ────────────────────────────────────── -->
+      <sensor name="imu_sensor" type="imu">
+        <always_on>true</always_on>
+        <update_rate>100</update_rate>
+        <topic>/drone/imu</topic>
+        <imu>
+          <angular_velocity>
+            <x><noise type="gaussian"><mean>0.0</mean><stddev>2e-4</stddev></noise></x>
+            <y><noise type="gaussian"><mean>0.0</mean><stddev>2e-4</stddev></noise></y>
+            <z><noise type="gaussian"><mean>0.0</mean><stddev>2e-4</stddev></noise></z>
+          </angular_velocity>
+          <linear_acceleration>
+            <x><noise type="gaussian"><mean>0.0</mean><stddev>1.7e-2</stddev></noise></x>
+            <y><noise type="gaussian"><mean>0.0</mean><stddev>1.7e-2</stddev></noise></y>
+            <z><noise type="gaussian"><mean>0.0</mean><stddev>1.7e-2</stddev></noise></z>
+          </linear_acceleration>
+        </imu>
+      </sensor>
+
+      <!-- ── Forward-facing GPU lidar (Phase 7) ─────────────────────── -->
+      <sensor name="front_lidar" type="gpu_lidar">
+        <pose>0.20 0 0.02 0 0 0</pose>
+        <always_on>true</always_on>
+        <update_rate>15</update_rate>
+        <visualize>false</visualize>
+        <topic>/drone/lidar</topic>
+        <ray>
+          <scan>
+            <horizontal>
+              <samples>720</samples>
+              <resolution>1</resolution>
+              <min_angle>-1.5708</min_angle>
+              <max_angle>1.5708</max_angle>
+            </horizontal>
+          </scan>
+          <range>
+            <min>0.25</min>
+            <max>25.0</max>
+            <resolution>0.01</resolution>
+          </range>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.015</stddev>
+          </noise>
+        </ray>
+      </sensor>
+
+    </link>
+
+    <!-- ── Velocity control (existing) ──────────────────────────────── -->
+    <plugin
+      filename="gz-sim-velocity-control-system"
+      name="gz::sim::systems::VelocityControl">
+      <topic>/cmd_vel</topic>
+    </plugin>
+
+    <!-- ── Pose publisher (Phase 2) ─────────────────────────────────── -->
+    <!-- Publishes /model/quadrotor/pose as gz.msgs.Pose at 30 Hz       -->
+    <plugin
+      filename="gz-sim-pose-publisher-system"
+      name="gz::sim::systems::PosePublisher">
+      <!-- Publish only model pose for stable /model/quadrotor/pose bridging. -->
+      <publish_model_pose>true</publish_model_pose>
+      <publish_link_pose>false</publish_link_pose>
+      <publish_nested_model_pose>false</publish_nested_model_pose>
+      <update_rate>30</update_rate>
+    </plugin>
+
+  </model>
+</sdf>
