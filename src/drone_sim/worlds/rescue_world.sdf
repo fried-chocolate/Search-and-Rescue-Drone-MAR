@@ -33,6 +33,20 @@
       <shadows>false</shadows>
     </scene>
 
+    <gui fullscreen="0">
+      <camera name="user_camera">
+        <!-- Start with a broad view of the mission zone and spawn point. -->
+        <pose>-20 -20 16 0 0.55 0.79</pose>
+      </camera>
+    </gui>
+
+    <!-- Load the drone with the world so it is always present in Entity Tree. -->
+    <include>
+      <uri>model://sar_drone</uri>
+      <name>quadrotor</name>
+      <pose>0 0 0.05 0 0 0</pose>
+    </include>
+
     <!-- ── Lighting ───────────────────────────────────────────────────────── -->
     <light type="directional" name="sun">
       <cast_shadows>true</cast_shadows>

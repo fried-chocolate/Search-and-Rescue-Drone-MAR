@@ -44,6 +44,9 @@ setup(
         (os.path.join('share', package_name, 'models', 'person_standing',
                       'materials', 'textures'),
             glob('models/person_standing/materials/textures/*')),
+        # ── SAR drone model package (for world include at startup) ───────
+        (os.path.join('share', package_name, 'models', 'sar_drone'),
+            glob('models/sar_drone/model.*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

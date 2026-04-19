@@ -11,7 +11,10 @@ if [[ ! -f "$ROS_SETUP" ]]; then
   exit 1
 fi
 
+# ROS setup scripts may reference unset vars internally; temporarily relax nounset.
+set +u
 source "$ROS_SETUP"
+set -u
 
 if ! command -v colcon >/dev/null 2>&1; then
   echo "ERROR: colcon is not installed or not on PATH."
@@ -21,7 +24,9 @@ fi
 echo "Building drone_sim package..."
 colcon build --symlink-install --packages-select drone_sim
 
+set +u
 source "$ROOT_DIR/install/setup.bash"
+set -u
 export SAR_RUN_MODE=full
 
 echo "Starting SAR Autonomous Drone in FULL mode..."

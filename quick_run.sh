@@ -11,7 +11,10 @@ if [[ ! -f "$ROS_SETUP" ]]; then
   exit 1
 fi
 
+# ROS setup scripts may reference unset vars internally; temporarily relax nounset.
+set +u
 source "$ROS_SETUP"
+set -u
 
 if [[ ! -f "$ROOT_DIR/install/setup.bash" ]]; then
   echo "ERROR: Workspace is not built yet."
@@ -19,7 +22,9 @@ if [[ ! -f "$ROOT_DIR/install/setup.bash" ]]; then
   exit 1
 fi
 
+set +u
 source "$ROOT_DIR/install/setup.bash"
+set -u
 export SAR_RUN_MODE=quick
 
 echo "Starting SAR Autonomous Drone in QUICK mode..."

@@ -11,6 +11,7 @@ Presentation mode             : short, victim-focused route for fast demos
 """
 
 import math
+import os
 import time
 
 import rclpy
@@ -121,8 +122,11 @@ WP_RADIUS      = 2.2    # metres — "waypoint reached" acceptance radius
 MAX_XY_SPEED   = 4.3    # m/s    — horizontal speed cap
 MAX_YAW_RATE   = 1.9    # rad/s  — yaw rate cap
 CTRL_HZ        = 10.0   # Hz     — control-loop frequency
-PRESENTATION_MODE = True
+DEFAULT_RUN_MODE = 'quick'
+QUICK_MODE_ALIASES = {'quick', 'demo', 'presentation', 'fast'}
+FULL_MODE_ALIASES = {'full', 'coverage', 'lawnmower'}
 TARGET_VICTIMS_FOR_DEMO = 2
+QUICK_STOP_ON_DEMO_COMPLETE = False
 
 # Lawnmower search grid (metres, world frame)
 # Kept to ±13 m to match the obstacle/victim placement area.
@@ -150,6 +154,20 @@ class DroneControl(Node):
 
     def __init__(self):
         super().__init__('drone_control')
+
+        raw_run_mode = os.environ.get('SAR_RUN_MODE', DEFAULT_RUN_MODE).strip().lower()
+        if raw_run_mode in FULL_MODE_ALIASES:
+            self._run_mode = 'full'
+            self._presentation_mode = False
+        elif raw_run_mode in QUICK_MODE_ALIASES or raw_run_mode == '':
+            self._run_mode = 'quick'
+            self._presentation_mode = True
+        else:
+            self._run_mode = 'quick'
+            self._presentation_mode = True
+            self.get_logger().warn(
+                f'Unknown SAR_RUN_MODE="{raw_run_mode}"; defaulting to quick mode.'
+            )
 
         # ── Publishers / subscribers ─────────────────────────────────────────
         self._pub = self.create_publisher(Twist, '/cmd_vel', 10)
@@ -198,7 +216,7 @@ class DroneControl(Node):
         self._mission_complete_announced = False
 
         # Phase 4: pre-generate the full lawnmower waypoint list
-        if PRESENTATION_MODE:
+        if self._presentation_mode:
             self._waypoints = generate_presentation_route(CRUISE_ALT)
         else:
             self._waypoints = generate_lawnmower(
@@ -218,9 +236,10 @@ class DroneControl(Node):
         # ── Timer ────────────────────────────────────────────────────────────
         self.create_timer(1.0 / CTRL_HZ, self._control_loop)
 
-        mode = 'presentation-fast' if PRESENTATION_MODE else 'coverage-lawnmower'
+        mode = 'presentation-fast' if self._presentation_mode else 'coverage-lawnmower'
         self.get_logger().info(
-            f'DroneControl started ({mode}) — {len(self._waypoints)} waypoints queued.'
+            f'DroneControl started ({mode}, run_mode={self._run_mode}) '
+            f'— {len(self._waypoints)} waypoints queued.'
             ' Waiting for first pose message…'
         )
 
@@ -439,7 +458,8 @@ class DroneControl(Node):
                 self._pub.publish(cmd)
                 return
 
-            if (PRESENTATION_MODE
+            if (self._presentation_mode
+                    and QUICK_STOP_ON_DEMO_COMPLETE
                     and len(self._confirmed_victims) >= TARGET_VICTIMS_FOR_DEMO):
                 self._phase = 'hover'
                 if not self._mission_complete_announced:
@@ -452,6 +472,14 @@ class DroneControl(Node):
                 return
 
             if self._wp_index >= len(self._waypoints):
+                if self._presentation_mode:
+                    self._wp_index = 0
+                    self.get_logger().info(
+                        'Quick route loop complete — restarting from waypoint 1.'
+                    )
+                    self._pub.publish(cmd)
+                    return
+
                 self._phase = 'hover'
                 self.get_logger().info(
                     'Search pattern complete — switching to hover.'

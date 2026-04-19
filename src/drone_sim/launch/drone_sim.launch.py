@@ -5,9 +5,8 @@ Launch file for the search-and-rescue drone simulation.
 Starts (in order):
   1. Gazebo Harmonic with rescue_world.sdf
     2. All ros_gz_bridge bridges (clock, cmd_vel, pose, camera, IMU, lidar)
-        3. Drone model spawn (after 3 s to let Gazebo load)
-        4. Drone controller node (after 5 s to allow spawning)
-        5. Camera viewer node (after 6 s, once simulation is fully running)
+                3. Drone controller node (after 5 s once simulation is stable)
+                4. Camera viewer node (after 6 s, once simulation is fully running)
 
 Usage after colcon build:
   ros2 launch drone_sim drone_sim.launch.py
@@ -25,7 +24,6 @@ from launch_ros.actions import Node
 def generate_launch_description() -> LaunchDescription:
     pkg = get_package_share_directory('drone_sim')
     world_file = os.path.join(pkg, 'worlds', 'rescue_world.sdf')
-    model_file = os.path.join(pkg, 'models', 'drone.sdf')
     worlds_dir = os.path.join(pkg, 'worlds')
     # models_dir is where quadrotor/, hatchback_red/, person_standing/ live
     # Gazebo resolves model:// URIs by searching each dir in GZ_SIM_RESOURCE_PATH
@@ -143,26 +141,7 @@ def generate_launch_description() -> LaunchDescription:
         output='screen',
     )
 
-    # ── 3. Spawn drone (delayed 3 s) ──────────────────────────────────────────
-    spawn_drone = TimerAction(
-        period=3.0,
-        actions=[
-            ExecuteProcess(
-                cmd=[
-                    'gz', 'service',
-                    '-s', '/world/rescue_world/create',
-                    '--reqtype', 'gz.msgs.EntityFactory',
-                    '--reptype', 'gz.msgs.Boolean',
-                    '--timeout', '8000',
-                    '--req',
-                    f'sdf_filename: "{model_file}", name: "quadrotor"',
-                ],
-                output='screen',
-            ),
-        ],
-    )
-
-    # ── 4. Drone controller (delayed 5 s) ─────────────────────────────────────
+    # ── 3. Drone controller (delayed 5 s) ─────────────────────────────────────
     drone_controller = TimerAction(
         period=5.0,
         actions=[
@@ -175,7 +154,7 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
-    # ── 5. Camera viewer (delayed 6 s) ────────────────────────────────────────
+    # ── 4. Camera viewer (delayed 6 s) ────────────────────────────────────────
     camera_viewer = TimerAction(
         period=6.0,
         actions=[
@@ -199,7 +178,6 @@ def generate_launch_description() -> LaunchDescription:
         camera_info_bridge,
         imu_bridge,
         lidar_bridge,
-        spawn_drone,
         drone_controller,
         camera_viewer,
     ])
